@@ -221,7 +221,7 @@
                         <version>3.0.0</version>
                         <configuration>
                             <failOnViolation>false</failOnViolation>
-                            <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                            <includeTestSourceDirectory>false</includeTestSourceDirectory>
                             <sourceDirectories>
                                 <directory>${basedir}/src/main/java</directory>
                                 <directory>${basedir}/src/main/scala</directory>
