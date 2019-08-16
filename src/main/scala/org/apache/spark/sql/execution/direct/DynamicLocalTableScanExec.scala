@@ -82,5 +82,4 @@ case class DynamicLocalTableScanExec(output: Seq[Attribute], name: TableIdentifi
     longMetric("numOutputRows").add(taken.size)
     taken
   }
-  
 }
