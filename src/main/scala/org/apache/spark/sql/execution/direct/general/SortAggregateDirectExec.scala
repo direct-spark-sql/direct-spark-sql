@@ -20,9 +20,9 @@ package org.apache.spark.sql.execution.direct.general
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, NamedExpression, UnsafeRow}
 import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
-import org.apache.spark.sql.catalyst.util.truncatedString
 import org.apache.spark.sql.execution.aggregate.SortBasedAggregationIterator
 import org.apache.spark.sql.execution.direct.{DirectPlan, DirectSQLMetrics, UnaryDirectExecNode}
+import org.apache.spark.util.Utils
 
 /**
  * Sort-based aggregate operator.
@@ -82,16 +82,16 @@ case class SortAggregateDirectExec(
     res
   }
 
-  override def simpleString(maxFields: Int): String = toString(verbose = false, maxFields)
+  override def simpleString: String = toString(verbose = false)
 
-  override def verboseString(maxFields: Int): String = toString(verbose = true, maxFields)
+  override def verboseString: String = toString(verbose = true)
 
-  private def toString(verbose: Boolean, maxFields: Int): String = {
+  private def toString(verbose: Boolean): String = {
     val allAggregateExpressions = aggregateExpressions
 
-    val keyString = truncatedString(groupingExpressions, "[", ", ", "]", maxFields)
-    val functionString = truncatedString(allAggregateExpressions, "[", ", ", "]", maxFields)
-    val outputString = truncatedString(output, "[", ", ", "]", maxFields)
+    val keyString = Utils.truncatedString(groupingExpressions, "[", ", ", "]")
+    val functionString = Utils.truncatedString(allAggregateExpressions, "[", ", ", "]")
+    val outputString = Utils.truncatedString(output, "[", ", ", "]")
     if (verbose) {
       s"SortAggregate(key=$keyString, functions=$functionString, output=$outputString)"
     } else {

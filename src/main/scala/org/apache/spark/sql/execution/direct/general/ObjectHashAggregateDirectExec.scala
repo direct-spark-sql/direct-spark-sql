@@ -22,9 +22,9 @@ import java.util.concurrent.TimeUnit.NANOSECONDS
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSeq, AttributeSet, NamedExpression, UnsafeRow}
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, TypedImperativeAggregate}
-import org.apache.spark.sql.catalyst.util.truncatedString
 import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, ObjectAggregationIterator}
 import org.apache.spark.sql.execution.direct.{DirectPlan, DirectSQLMetrics, UnaryDirectExecNode}
+import org.apache.spark.util.Utils
 
 /**
  * A hash-based aggregate operator that supports [[TypedImperativeAggregate]] functions that may
@@ -118,15 +118,15 @@ case class ObjectHashAggregateDirectExec(
     res
   }
 
-  override def verboseString(maxFields: Int): String = toString(verbose = true, maxFields)
+  override def verboseString: String = toString(verbose = true)
 
-  override def simpleString(maxFields: Int): String = toString(verbose = false, maxFields)
+  override def simpleString: String = toString(verbose = false)
 
-  private def toString(verbose: Boolean, maxFields: Int): String = {
+  private def toString(verbose: Boolean): String = {
     val allAggregateExpressions = aggregateExpressions
-    val keyString = truncatedString(groupingExpressions, "[", ", ", "]", maxFields)
-    val functionString = truncatedString(allAggregateExpressions, "[", ", ", "]", maxFields)
-    val outputString = truncatedString(output, "[", ", ", "]", maxFields)
+    val keyString = Utils.truncatedString(groupingExpressions, "[", ", ", "]")
+    val functionString = Utils.truncatedString(allAggregateExpressions, "[", ", ", "]")
+    val outputString = Utils.truncatedString(output, "[", ", ", "]")
     if (verbose) {
       s"ObjectHashAggregate(keys=$keyString, functions=$functionString, output=$outputString)"
     } else {

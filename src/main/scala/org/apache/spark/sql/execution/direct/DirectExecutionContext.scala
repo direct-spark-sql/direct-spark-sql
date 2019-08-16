@@ -18,16 +18,21 @@
 package org.apache.spark.sql.execution.direct
 
 import java.util.EventListener
+import java.util.function.Supplier
 
 import scala.collection.mutable.ArrayBuffer
 
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.execution.direct.general.ExecSubqueryExpression
 import org.apache.spark.sql.execution.metric.SQLMetric
+
 
 object DirectExecutionContext {
   private[this] val executionContext: ThreadLocal[DirectExecutionContext] =
-    ThreadLocal.withInitial[DirectExecutionContext](() => new DirectExecutionContext())
+    ThreadLocal.withInitial[DirectExecutionContext]( new Supplier[DirectExecutionContext] {
+      override def get(): DirectExecutionContext = {
+        new DirectExecutionContext()
+      }
+    })
 
   def get(): DirectExecutionContext = executionContext.get
 
@@ -42,13 +47,6 @@ class DirectExecutionContext {
   val activeSparkSession: SparkSession = SparkSession.active
 
   private val onCompleteCallbacks = new ArrayBuffer[ExecutionCompletionListener]
-
-  val runningSubQueriesMap
-    : scala.collection.mutable.Map[DirectPlan, ArrayBuffer[ExecSubqueryExpression]] =
-    scala.collection.mutable.Map[DirectPlan, ArrayBuffer[ExecSubqueryExpression]]()
-
-  val preparedMap: scala.collection.mutable.Map[DirectPlan, Boolean] =
-    scala.collection.mutable.Map[DirectPlan, Boolean]()
 
   def addExecutionCompletionListener(listener: ExecutionCompletionListener): Unit = {
     onCompleteCallbacks += listener

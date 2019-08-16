@@ -17,33 +17,30 @@
 
 package org.apache.spark.sql.execution.direct
 
-import java.util.concurrent.TimeUnit
-
-import scala.collection.mutable.ArrayBuffer
-
-import com.google.common.base.Stopwatch
 import org.codehaus.commons.compiler.CompileException
 import org.codehaus.janino.InternalCompilerException
 
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Ascending, Attribute, AttributeSet, BoundReference, Expression, InterpretedPredicate, MutableProjection, SortOrder}
+import org.apache.spark.sql.catalyst.expressions.{
+  Ascending,
+  Attribute,
+  AttributeSet,
+  BoundReference,
+  Expression,
+  InterpretedPredicate,
+  MutableProjection,
+  SortOrder
+}
 import org.apache.spark.sql.catalyst.expressions.codegen.{Predicate => GenPredicate, _}
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.execution.SparkPlan
-import org.apache.spark.sql.execution.direct.general.ExecSubqueryExpression
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.types.DataType
 
 abstract class DirectPlan extends QueryPlan[DirectPlan] with Logging {
 
-  /**
-   * A handle to the SQL Context that was used to create this plan. Since many operators need
-   * access to the sqlContext for RDD operations or configuration this field is automatically
-   * populated by the query planning infrastructure.
-   */
-  @transient final val sqlContext = DirectExecutionContext.get().activeSparkSession.sqlContext
+  final val sqlContext = DirectExecutionContext.get().activeSparkSession.sqlContext
 
   protected def sparkContext = sqlContext.sparkContext
 
@@ -77,72 +74,9 @@ abstract class DirectPlan extends QueryPlan[DirectPlan] with Logging {
     planMetrics.getOrElseUpdate(name, metricValue)
   }
 
-  /**
-   * List of (uncorrelated scalar subquery, future holding the subquery result) for this plan node.
-   * This list is populated by [[prepareSubqueries]], which is called in [[prepare]].
-   */
-  private def runningSubqueries: ArrayBuffer[ExecSubqueryExpression] = {
-    DirectExecutionContext
-      .get()
-      .runningSubQueriesMap
-      .getOrElseUpdate(this, new ArrayBuffer[ExecSubqueryExpression])
-  }
-
-  /**
-   * Finds scalar subquery expressions in this plan node and starts evaluating them.
-   */
-  protected def prepareSubqueries(): Unit = {
-    expressions.foreach(m => {
-      m.collect {
-        case e: ExecSubqueryExpression =>
-          e.plan.prepare()
-          runningSubqueries += e
-      }
-    })
-  }
-
-  /**
-   * Blocks the thread until all subqueries finish evaluation and update the results.
-   */
-  protected def waitForSubqueries(): Unit = synchronized {
-    // fill in the result of subqueries
-    runningSubqueries.foreach { sub =>
-      sub.updateResult()
-    }
-    runningSubqueries.clear()
-  }
-
-  /**
-   * Whether the "prepare" method is called.
-   */
-  private def prepared: Boolean = DirectExecutionContext.get().preparedMap.getOrElse(this, false)
-
-  private def markPrepared(): Unit = {
-    DirectExecutionContext.get().preparedMap.put(this, true)
-  }
-
-  protected def doPrepare(): Unit = {}
-
-  /**
-   * Prepares this DirectPlan for execution. It's idempotent.
-   */
-  final def prepare(): Unit = {
-    // doPrepare() may depend on it's children, we should call prepare() on all the children first.
-//    children.foreach(_.prepare())
-//    synchronized {
-//      if (!prepared) {
-//        prepareSubqueries()
-//        doPrepare()
-//        markPrepared()
-//      }
-//    }
-  }
-
   protected def doExecute(): Iterator[InternalRow]
 
   final def execute(): Iterator[InternalRow] = {
-    prepare()
-    waitForSubqueries()
     doExecute()
   }
 
@@ -151,7 +85,7 @@ abstract class DirectPlan extends QueryPlan[DirectPlan] with Logging {
       inputSchema: Seq[Attribute],
       useSubexprElimination: Boolean = false): MutableProjection = {
     log.debug(s"Creating MutableProj: $expressions, inputSchema: $inputSchema")
-    MutableProjection.create(expressions, inputSchema)
+    GenerateMutableProjection.generate(expressions, inputSchema, useSubexprElimination)
   }
 
   private def genInterpretedPredicate(
@@ -227,12 +161,8 @@ case class DirectPlanAdapter(sparkPlan: SparkPlan) extends DirectPlan {
   override def children: Seq[DirectPlan] = Nil
 
   override def doExecute(): Iterator[InternalRow] = {
-    val s = new Stopwatch().start()
     val r = sparkPlan.executeCollect()
-    s.stop()
-    logWarning(
-      "sparkPlan execute spend " + s.elapsed(TimeUnit.MICROSECONDS) * 0.001 + ", " + sparkPlan)
-
+    logWarning("DirectPlanAdapter for sparkPlan: " + sparkPlan)
     r.toIterator
   }
 
