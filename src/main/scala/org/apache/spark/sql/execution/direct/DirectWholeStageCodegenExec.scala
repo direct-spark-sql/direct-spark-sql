@@ -41,21 +41,13 @@ case class DirectInputAdapter(child: DirectPlan) extends UnaryDirectExecNode {
   override def generateTreeString(
       depth: Int,
       lastChildren: Seq[Boolean],
-      append: String => Unit,
+      builder: StringBuilder,
       verbose: Boolean,
       prefix: String = "",
-      addSuffix: Boolean = false,
-      maxFields: Int): Unit = {
-    child.generateTreeString(
-      depth,
-      lastChildren,
-      append,
-      verbose,
-      prefix = "",
-      addSuffix = false,
-      maxFields)
-  }
+      addSuffix: Boolean = false): StringBuilder = {
+    child.generateTreeString(depth, lastChildren, builder, verbose, "")
 
+  }
 }
 case class DirectWholeStageCodegenExec(original: WholeStageCodegenExec)
     extends UnaryDirectExecNode {
@@ -73,8 +65,8 @@ case class DirectWholeStageCodegenExec(original: WholeStageCodegenExec)
       if (children.size == 1) {
         nextPlan = children.head
       }
-    } while (children.size==1 && nextPlan.isInstanceOf[CodegenSupport]
-        && nextPlan.asInstanceOf[CodegenSupport].supportCodegen)
+    } while (children.size == 1 && nextPlan.isInstanceOf[CodegenSupport]
+      && nextPlan.asInstanceOf[CodegenSupport].supportCodegen)
 
     assert(
       children.size == 1 || children.size == 2,
@@ -156,19 +148,11 @@ case class DirectWholeStageCodegenExec(original: WholeStageCodegenExec)
   override def generateTreeString(
       depth: Int,
       lastChildren: Seq[Boolean],
-      append: String => Unit,
+      builder: StringBuilder,
       verbose: Boolean,
       prefix: String = "",
-      addSuffix: Boolean = false,
-      maxFields: Int): Unit = {
-    original.generateTreeString(
-      depth,
-      lastChildren,
-      append,
-      verbose,
-      s"*($codegenStageId) ",
-      false,
-      maxFields)
+      addSuffix: Boolean = false): StringBuilder = {
+    child.generateTreeString(depth, lastChildren, builder, verbose, s"*($codegenStageId) ")
   }
 
 }

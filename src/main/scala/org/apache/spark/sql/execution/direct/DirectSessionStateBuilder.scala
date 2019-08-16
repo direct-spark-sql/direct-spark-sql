@@ -19,9 +19,9 @@ package org.apache.spark.sql.execution.direct
 
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.analysis.{
+  AliasViewChild,
   Analyzer,
   CleanupAliases,
-  CTESubstitution,
   EliminateUnions,
   ResolveCreateNamedStruct,
   ResolveHigherOrderFunctions,
@@ -34,7 +34,6 @@ import org.apache.spark.sql.catalyst.analysis.{
   TimeWindowing,
   TypeCoercion,
   UnresolvedRelation,
-  UpdateAttributeNullability,
   UpdateOuterReferences
 }
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
@@ -65,9 +64,9 @@ class DirectSessionStateBuilder(session: SparkSession, parentState: Option[Sessi
       Batch(
         "Hints",
         fixedPoint,
-        new ResolveHints.ResolveJoinStrategyHints(conf),
+        new ResolveHints.ResolveBroadcastHints(conf),
         ResolveHints.ResolveCoalesceHints,
-        new ResolveHints.RemoveAllHints(conf)),
+        ResolveHints.RemoveAllHints),
       Batch("Simple Sanity Check", Once, LookupFunctions),
       Batch(
         "Substitution",
@@ -80,10 +79,8 @@ class DirectSessionStateBuilder(session: SparkSession, parentState: Option[Sessi
         "Resolution",
         fixedPoint,
         ResolveTableValuedFunctions ::
-          ResolveAlterTable ::
-          ResolveInsertInto ::
-          ResolveTables ::
-          ResolveLazyRelations :: // lazy
+          ResolveLazyRelations :: // lazy for direct mode
+
           ResolveRelations ::
           ResolveReferences ::
           ResolveCreateNamedStruct ::
@@ -117,9 +114,10 @@ class DirectSessionStateBuilder(session: SparkSession, parentState: Option[Sessi
           TypeCoercion.typeCoercionRules(conf) ++
           extendedResolutionRules: _*),
       Batch("Post-Hoc Resolution", Once, postHocResolutionRules: _*),
+      Batch("View", Once, AliasViewChild(conf)),
       Batch("Nondeterministic", Once, PullOutNondeterministic),
       Batch("UDF", Once, HandleNullInputsForUDF),
-      Batch("UpdateNullability", Once, UpdateAttributeNullability),
+      Batch("FixNullability", Once, FixNullability),
       Batch("Subquery", Once, UpdateOuterReferences),
       Batch("Cleanup", fixedPoint, CleanupAliases))
 
@@ -129,7 +127,7 @@ class DirectSessionStateBuilder(session: SparkSession, parentState: Option[Sessi
       }
 
       def resolveRelation(plan: LogicalPlan): LogicalPlan = plan match {
-        case UnresolvedRelation(AsTableIdentifier(ident)) if catalog.isTemporaryTable(ident) =>
+        case UnresolvedRelation(ident) if catalog.isTemporaryTable(ident) =>
           val resolvedRelation = ResolveRelations.resolveRelation(plan)
           resolvedRelation match {
             case SubqueryAlias(name, Project(projectList, LocalRelation(output, data, _))) =>

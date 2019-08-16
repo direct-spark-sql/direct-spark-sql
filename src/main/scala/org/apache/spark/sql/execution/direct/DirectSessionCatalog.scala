@@ -119,14 +119,15 @@ class DirectSessionCatalog(
     isTemp
   }
 
-  override def listLocalTempViews(pattern: String): Seq[TableIdentifier] = synchronized {
+  override def listTables(db: String, pattern: String): Seq[TableIdentifier] = synchronized {
     val directTempViewNames = directTempViews.flatMap {
       case (dbName, tb) =>
         tb.map {
           case (tableName, _) => s"${dbName}.${tableName}"
         }
     }.toSeq
-    super.listLocalTempViews(pattern) ++ StringUtils
+
+    super.listTables(db, pattern) ++ StringUtils
       .filterPattern(directTempViewNames, pattern)
       .map { name =>
         {

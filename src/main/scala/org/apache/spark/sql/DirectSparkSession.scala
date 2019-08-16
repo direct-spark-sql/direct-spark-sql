@@ -29,7 +29,8 @@ import org.apache.spark.memory.{TaskMemoryManager, UnifiedMemoryManager}
 import org.apache.spark.scheduler.{SparkListener, SparkListenerApplicationEnd}
 import org.apache.spark.sql.SparkSession.{setActiveSession, setDefaultSession}
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
-import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
+import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.catalyst.expressions.codegen.GenerateSafeProjection
 import org.apache.spark.sql.catalyst.plans.logical.LocalRelation
 import org.apache.spark.sql.execution.direct.{
   DirectExecutionContext,
@@ -80,26 +81,23 @@ class DirectSparkSession(sparkContext: SparkContext) extends SparkSession(sparkC
     try {
       val df = sql(sqlText)
       val dfMirror = ru.runtimeMirror(getClass.getClassLoader).reflect(df)
-      val resolvedEncLazyMethodSymbol =
-        ru.typeOf[DataFrame].member(ru.TermName("resolvedEnc")).asMethod
-      val resolvedEncLazyMethodMirror = dfMirror.reflectMethod(resolvedEncLazyMethodSymbol)
-      val resolvedEnc = resolvedEncLazyMethodMirror().asInstanceOf[ExpressionEncoder[Row]]
-      val enc = resolvedEnc.copy()
+      val deserializerLazyMethodSymbol =
+        ru.typeOf[DataFrame].member(ru.TermName("deserializer")).asMethod
+      val deserializerLazyMethodMirror = dfMirror.reflectMethod(deserializerLazyMethodSymbol)
+      val deserializer = deserializerLazyMethodMirror().asInstanceOf[Expression]
+      val objProj = GenerateSafeProjection.generate(deserializer :: Nil)
+
       // hold current active SparkSession
       DirectExecutionContext.get()
       val directExecutedPlan = DirectPlanConverter.convert(df.queryExecution.sparkPlan)
       val taskMemoryManager = new TaskMemoryManager(
-        new UnifiedMemoryManager(
-          new SparkConf().set(MEMORY_OFFHEAP_ENABLED.key, "false"),
-          Long.MaxValue,
-          Long.MaxValue / 2,
-          1),
+        UnifiedMemoryManager.apply(new SparkConf().set(MEMORY_OFFHEAP_ENABLED.key, "false"), 1),
         0)
       // prepare a TaskContext for execution
       TaskContext.setTaskContext(
         new TaskContextImpl(0, 0, 0, 0, 0, taskMemoryManager, new Properties, null))
       val iter = directExecutedPlan.execute()
-      val data = iter.map(enc.fromRow).toArray
+      val data = iter.map(objProj(_).get(0, null).asInstanceOf[Row]).toArray
       DirectDataTable(df.schema, data)
     } finally {
       DirectExecutionContext.get().markCompleted()
@@ -231,7 +229,6 @@ object DirectSparkSession extends Logging {
       config("spark.sql.codegen.fallback", false)
       config("spark.sql.autoBroadcastJoinThreshold", 0)
       config("spark.sql.join.preferSortMergeJoin", false)
-
 
       config("spark.sql.windowExec.buffer.in.memory.threshold", Integer.MAX_VALUE)
       master("local[1]")
