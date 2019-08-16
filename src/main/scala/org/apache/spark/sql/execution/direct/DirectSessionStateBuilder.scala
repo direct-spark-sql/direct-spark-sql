@@ -1,0 +1,145 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.apache.spark.sql.execution.direct
+
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.catalyst.analysis.{
+  Analyzer,
+  CleanupAliases,
+  CTESubstitution,
+  EliminateUnions,
+  ResolveCreateNamedStruct,
+  ResolveHigherOrderFunctions,
+  ResolveHints,
+  ResolveInlineTables,
+  ResolveLambdaVariables,
+  ResolveTableValuedFunctions,
+  ResolveTimeZone,
+  SubstituteUnresolvedOrdinals,
+  TimeWindowing,
+  TypeCoercion,
+  UnresolvedRelation,
+  UpdateAttributeNullability,
+  UpdateOuterReferences
+}
+import org.apache.spark.sql.catalyst.catalog.SessionCatalog
+import org.apache.spark.sql.catalyst.plans.logical._
+import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.internal.{BaseSessionStateBuilder, SessionState}
+
+class DirectSessionStateBuilder(session: SparkSession, parentState: Option[SessionState] = None)
+    extends BaseSessionStateBuilder(session, parentState) {
+
+  override protected lazy val catalog: SessionCatalog = {
+    val catalog = new DirectSessionCatalog(
+      () => session.sharedState.externalCatalog,
+      () => session.sharedState.globalTempViewManager,
+      functionRegistry,
+      conf,
+      SessionState.newHadoopConf(session.sparkContext.hadoopConfiguration, conf),
+      sqlParser,
+      resourceLoader)
+    parentState.foreach(_.catalog.copyStateTo(catalog))
+    catalog
+  }
+
+  override protected def newBuilder: NewBuilder = new DirectSessionStateBuilder(_, _)
+
+  override protected def analyzer: Analyzer = new Analyzer(catalog, conf) {
+    override lazy val batches: Seq[Batch] = Seq(
+      Batch(
+        "Hints",
+        fixedPoint,
+        new ResolveHints.ResolveJoinStrategyHints(conf),
+        ResolveHints.ResolveCoalesceHints,
+        new ResolveHints.RemoveAllHints(conf)),
+      Batch("Simple Sanity Check", Once, LookupFunctions),
+      Batch(
+        "Substitution",
+        fixedPoint,
+        CTESubstitution,
+        WindowsSubstitution,
+        EliminateUnions,
+        new SubstituteUnresolvedOrdinals(conf)),
+      Batch(
+        "Resolution",
+        fixedPoint,
+        ResolveTableValuedFunctions ::
+          ResolveAlterTable ::
+          ResolveInsertInto ::
+          ResolveTables ::
+          ResolveLazyRelations :: // lazy
+          ResolveRelations ::
+          ResolveReferences ::
+          ResolveCreateNamedStruct ::
+          ResolveDeserializer ::
+          ResolveNewInstance ::
+          ResolveUpCast ::
+          ResolveGroupingAnalytics ::
+          ResolvePivot ::
+          ResolveOrdinalInOrderByAndGroupBy ::
+          ResolveAggAliasInGroupBy ::
+          ResolveMissingReferences ::
+          ExtractGenerator ::
+          ResolveGenerate ::
+          ResolveFunctions ::
+          ResolveAliases ::
+          ResolveSubquery ::
+          ResolveSubqueryColumnAliases ::
+          ResolveWindowOrder ::
+          ResolveWindowFrame ::
+          ResolveNaturalAndUsingJoin ::
+          ResolveOutputRelation ::
+          ExtractWindowExpressions ::
+          GlobalAggregates ::
+          ResolveAggregateFunctions ::
+          TimeWindowing ::
+          ResolveInlineTables(conf) ::
+          ResolveHigherOrderFunctions(catalog) ::
+          ResolveLambdaVariables(conf) ::
+          ResolveTimeZone(conf) ::
+          ResolveRandomSeed ::
+          TypeCoercion.typeCoercionRules(conf) ++
+          extendedResolutionRules: _*),
+      Batch("Post-Hoc Resolution", Once, postHocResolutionRules: _*),
+      Batch("Nondeterministic", Once, PullOutNondeterministic),
+      Batch("UDF", Once, HandleNullInputsForUDF),
+      Batch("UpdateNullability", Once, UpdateAttributeNullability),
+      Batch("Subquery", Once, UpdateOuterReferences),
+      Batch("Cleanup", fixedPoint, CleanupAliases))
+
+    object ResolveLazyRelations extends Rule[LogicalPlan] {
+      def apply(plan: LogicalPlan): LogicalPlan = plan.resolveOperatorsUp {
+        case u: UnresolvedRelation => resolveRelation(u)
+      }
+
+      def resolveRelation(plan: LogicalPlan): LogicalPlan = plan match {
+        case UnresolvedRelation(AsTableIdentifier(ident)) if catalog.isTemporaryTable(ident) =>
+          val resolvedRelation = ResolveRelations.resolveRelation(plan)
+          resolvedRelation match {
+            case SubqueryAlias(name, Project(projectList, LocalRelation(output, data, _))) =>
+              SubqueryAlias(name, Project(projectList, NamedLocalRelation(output, data, ident)))
+            case SubqueryAlias(name, LocalRelation(output, data, _)) =>
+              SubqueryAlias(name, NamedLocalRelation(output, data, ident))
+            case _ => plan
+          }
+        case _ => plan
+      }
+    }
+  }
+}
