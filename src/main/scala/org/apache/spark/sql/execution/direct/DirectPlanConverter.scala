@@ -118,6 +118,9 @@ object DirectPlanConverter {
       case sortExec: SortExec =>
         SortDirectExec(sortExec.sortOrder, convertToDirectPlan(sortExec.child))
 
+      // limit
+      case localLimitExec: LocalLimitExec =>
+        LimitDirectExec(localLimitExec.limit, convertToDirectPlan(localLimitExec.child))
 
       // join
       case hashJoin: HashJoin =>
@@ -158,7 +161,7 @@ object DirectPlanConverter {
           convertToDirectPlan(generateExec.child))
 
       case unionExec: UnionExec =>
-        UnionDirectExec(unionExec.children.map(convertToDirectPlan(_)))
+        UnionDirectExec(unionExec.children.map(convertToDirectPlan))
 
       case other =>
         if (codegenFallback) {
@@ -178,19 +181,6 @@ object DirectPlanConverter {
       case FilterExec(condition, child) =>
         FilterDirectExec(condition, convertToDirectPlan(child))
 
-      case DynamicLocalTableScanExec(output, name) =>
-        LocalTableScanDirectExec(output, name)
-
-
-      case sortMergeJoin: SortMergeJoinExec =>
-        HashJoinDirectExec(
-          sortMergeJoin.leftKeys,
-          sortMergeJoin.rightKeys,
-          sortMergeJoin.joinType,
-          sortMergeJoin.condition,
-          convertToDirectPlan(sortMergeJoin.left),
-          convertToDirectPlan(sortMergeJoin.right))
-
       case broadcastNestedLoopJoinExec: BroadcastNestedLoopJoinExec =>
         DirectPlanAdapter(broadcastNestedLoopJoinExec)
       case cartesianProductExec: CartesianProductExec =>
@@ -204,10 +194,6 @@ object DirectPlanConverter {
           hashAggregateExec.initialInputBufferOffset,
           hashAggregateExec.resultExpressions,
           convertToDirectPlan(hashAggregateExec.child))
-
-      // limit
-      case localLimitExec: LocalLimitExec =>
-        LimitDirectExec(localLimitExec.limit, convertToDirectPlan(localLimitExec.child))
 
       // TODO other
       case other =>
