@@ -86,4 +86,55 @@ class DirectExecSuite extends TestBase {
         |""".stripMargin)
   }
 
+  @Test
+  def testUnion(): Unit = {
+    assertEquals(
+      """
+        |select * from people
+        |union
+        |select * from people2
+        |""".stripMargin
+    )
+  }
+
+  @Test
+  def testLeftJoin(): Unit = {
+    assertEquals("""
+                   |select
+                   |* from people t1
+                   |left outer join people2 t2
+                   |on t1.name = t2.name
+                   |""".stripMargin)
+  }
+
+  @Test
+  def testRightJoin(): Unit = {
+    assertEquals("""
+                   |select
+                   |* from people t1
+                   |right outer join people2 t2
+                   |on t1.name = t2.name
+                   |""".stripMargin)
+  }
+
+  @Test
+  def testLeftSemiJoin(): Unit = {
+    assertEquals("""
+                   |select
+                   |* from people t1
+                   |left semi join people2 t2
+                   |on t1.name = t2.name
+                   |""".stripMargin)
+  }
+
+  @Test
+  def testLeftAntiJoin(): Unit = {
+    assertEquals("""
+                   |select
+                   |* from people t1
+                   |left anti join people2 t2
+                   |on t1.name = t2.name
+                   |""".stripMargin)
+  }
+
 }
