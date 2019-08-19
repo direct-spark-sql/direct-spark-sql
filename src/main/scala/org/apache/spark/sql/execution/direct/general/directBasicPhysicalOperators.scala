@@ -148,3 +148,12 @@ object SubqueryDirectExec {
   private[execution] val executionContext =
     ExecutionContext.fromExecutorService(ThreadUtils.newDaemonFixedThreadPool(16, "subquery"))
 }
+
+case class UnionDirectExec(children: Seq[DirectPlan]) extends DirectPlan {
+  override def output: Seq[Attribute] =
+    children.map(_.output).transpose.map(attrs =>
+      attrs.head.withNullability(attrs.exists(_.nullable)))
+
+  override def doExecute(): Iterator[InternalRow] =
+    children.map(_.execute()).reduce(_ ++ _)
+}
