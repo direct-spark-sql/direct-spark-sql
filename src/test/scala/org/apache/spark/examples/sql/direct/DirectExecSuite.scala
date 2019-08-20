@@ -17,6 +17,7 @@
 
 package org.apache.spark.examples.sql.direct
 
+import org.apache.hadoop.hive.ql.exec.UDF
 import org.junit.{After, Before, Test}
 
 import org.apache.spark.examples.sql.TestBase
@@ -67,6 +68,18 @@ class DirectExecSuite extends TestBase {
   }
 
   @Test
+  def testAgg2(): Unit = {
+    assertEquals(
+      """
+        |select
+        |genda, approx_count_distinct(age)
+        |from
+        |people group by genda
+        |""".stripMargin,
+      true)
+  }
+
+  @Test
   def testJoin(): Unit = {
     assertEquals("""
         |select
@@ -78,8 +91,7 @@ class DirectExecSuite extends TestBase {
 
   @Test
   def testWindow(): Unit = {
-    assertEquals(
-      """
+    assertEquals("""
         |SELECT
         |name,ROW_NUMBER() OVER (PARTITION BY genda ORDER BY name) as row
         |FROM people
@@ -88,13 +100,11 @@ class DirectExecSuite extends TestBase {
 
   @Test
   def testUnion(): Unit = {
-    assertEquals(
-      """
+    assertEquals("""
         |select * from people
         |union
         |select * from people2
-        |""".stripMargin
-    )
+        |""".stripMargin)
   }
 
   @Test
@@ -136,5 +146,32 @@ class DirectExecSuite extends TestBase {
                    |on t1.name = t2.name
                    |""".stripMargin)
   }
+
+  @Test
+  def testOneRow(): Unit = {
+    assertEquals("""
+        |select 1 as m, 'a' as n
+        |""".stripMargin)
+  }
+
+  @Test
+  def testHiveUdf(): Unit = {
+    spark.sql(s"CREATE TEMPORARY FUNCTION hive_strlen AS '${classOf[StrLen].getName}'")
+    assertEquals(
+      """
+        |select hive_strlen(name), hive_strlen(age)
+        |from people
+        |""".stripMargin)
+  }
+
+
+}
+class StrLen extends UDF {
+
+  def evaluate(input: String): Int =
+    input.length()
+
+  def evaluate(input: Int): Int =
+    input + 100
 
 }
