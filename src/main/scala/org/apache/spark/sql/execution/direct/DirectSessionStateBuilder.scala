@@ -39,6 +39,7 @@ import org.apache.spark.sql.catalyst.analysis.{
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.hive.DirectSessionCatalog
 import org.apache.spark.sql.internal.{BaseSessionStateBuilder, SessionState}
 
 class DirectSessionStateBuilder(session: SparkSession, parentState: Option[SessionState] = None)
