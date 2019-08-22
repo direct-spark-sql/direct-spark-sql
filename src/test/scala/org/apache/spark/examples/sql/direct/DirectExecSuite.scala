@@ -18,7 +18,7 @@
 package org.apache.spark.examples.sql.direct
 
 import org.apache.hadoop.hive.ql.exec.UDF
-import org.junit.{After, Before, Test}
+import org.junit.{After, Assert, Before, Test}
 
 import org.apache.spark.examples.sql.TestBase
 
@@ -162,6 +162,17 @@ class DirectExecSuite extends TestBase {
         |select hive_strlen(name), hive_strlen(age)
         |from people
         |""".stripMargin)
+  }
+
+  @Test
+  def testHiveUdf2(): Unit = {
+    spark.sql(s"CREATE FUNCTION hive_strlen2 AS '${classOf[StrLen].getName}'")
+    val session = spark.newSession()
+    val table = session.sqlDirectly(
+      """
+        |select hive_strlen2('hyf_test'), hive_strlen2(100)
+        |""".stripMargin)
+    Assert.assertEquals("[8,200]", table.data.mkString(","))
   }
 
 
