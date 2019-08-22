@@ -37,14 +37,23 @@ import org.apache.spark.sql.execution.direct.{
   DirectPlanConverter,
   DirectPlanStrategies
 }
-import org.apache.spark.sql.internal.{BaseSessionStateBuilder, SessionState}
+import org.apache.spark.sql.internal.{BaseSessionStateBuilder, SessionState, SharedState}
 import org.apache.spark.util.Utils
 
-class DirectSparkSession(sparkContext: SparkContext) extends SparkSession(sparkContext) {
+class DirectSparkSession private (
+    sparkContext: SparkContext,
+    private val directExistingSharedState: Option[SharedState])
+    extends SparkSession(sparkContext) {
   self =>
+
+  private[sql] def this(sparkContext: SparkContext) = this(sparkContext, None)
 
   private val DIRECT_SESSION_STATE_BUILDER_CLASS_NAME =
     "org.apache.spark.sql.execution.direct.DirectSessionStateBuilder"
+
+  override lazy val sharedState: SharedState = {
+    directExistingSharedState.getOrElse(new SharedState(sparkContext))
+  }
 
   override lazy val sessionState: SessionState = {
     try {
@@ -71,7 +80,7 @@ class DirectSparkSession(sparkContext: SparkContext) extends SparkSession(sparkC
    * @since 2.0.0
    */
   override def newSession(): DirectSparkSession = {
-    val session = new DirectSparkSession(sparkContext)
+    val session = new DirectSparkSession(sparkContext, Some(sharedState))
     DirectPlanStrategies.strategies.foreach(strategy =>
       session.extensions.injectPlannerStrategy(_ => strategy))
     session
