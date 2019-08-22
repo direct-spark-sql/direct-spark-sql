@@ -23,8 +23,8 @@ import org.apache.spark.sql.catalyst.expressions.SortOrder
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
-import org.apache.spark.sql.execution.direct.general.{FilterDirectExec, GenerateDirectExec, HashAggregateDirectExec, HashJoinDirectExec, LimitDirectExec, ObjectHashAggregateDirectExec, ProjectDirectExec, SortAggregateDirectExec, SortDirectExec, UnionDirectExec}
-import org.apache.spark.sql.execution.joins.{BroadcastNestedLoopJoinExec, CartesianProductExec, HashJoin, SortMergeJoinExec}
+import org.apache.spark.sql.execution.direct.general._
+import org.apache.spark.sql.execution.joins.{BroadcastNestedLoopJoinExec, CartesianProductExec, HashJoin}
 import org.apache.spark.sql.execution.window.{WindowDirectExec, WindowExec}
 import org.apache.spark.sql.internal.SQLConf
 
@@ -132,7 +132,6 @@ object DirectPlanConverter {
           convertToDirectPlan(hashJoin.left),
           convertToDirectPlan(hashJoin.right))
 
-
       // aggregate
       case objectHashAggregateExec: ObjectHashAggregateExec =>
         ObjectHashAggregateDirectExec(
@@ -163,28 +162,8 @@ object DirectPlanConverter {
       case unionExec: UnionExec =>
         UnionDirectExec(unionExec.children.map(convertToDirectPlan))
 
-      case other =>
-        if (codegenFallback) {
-          convertGeneralSparkPlan(plan)
-        } else {
-          throw new UnsupportedOperationException(
-            "can't convert this SparkPlan for codegenFallback now is false " + other)
-        }
-    }
-  }
-
-  private def convertGeneralSparkPlan(plan: SparkPlan): DirectPlan = {
-    plan match {
-      // basic
-      case ProjectExec(projectList, child) =>
-        ProjectDirectExec(projectList, convertToDirectPlan(child))
-      case FilterExec(condition, child) =>
-        FilterDirectExec(condition, convertToDirectPlan(child))
-
-      case broadcastNestedLoopJoinExec: BroadcastNestedLoopJoinExec =>
-        DirectPlanAdapter(broadcastNestedLoopJoinExec)
-      case cartesianProductExec: CartesianProductExec =>
-        DirectPlanAdapter(cartesianProductExec)
+      case rddScanExec: RDDScanExec if "OneRowRelation".equals(rddScanExec.name) =>
+        RDDScanDirectExec(rddScanExec.output, rddScanExec.rdd, rddScanExec.name)
 
       case hashAggregateExec: HashAggregateExec =>
         HashAggregateDirectExec(
@@ -195,7 +174,16 @@ object DirectPlanConverter {
           hashAggregateExec.resultExpressions,
           convertToDirectPlan(hashAggregateExec.child))
 
-      // TODO other
+      case ProjectExec(projectList, child) =>
+        ProjectDirectExec(projectList, convertToDirectPlan(child))
+      case FilterExec(condition, child) =>
+        FilterDirectExec(condition, convertToDirectPlan(child))
+
+      case broadcastNestedLoopJoinExec: BroadcastNestedLoopJoinExec =>
+        DirectPlanAdapter(broadcastNestedLoopJoinExec)
+      case cartesianProductExec: CartesianProductExec =>
+        DirectPlanAdapter(cartesianProductExec)
+
       case other =>
         // DirectPlanAdapter(other)
         throw new UnsupportedOperationException("can't convert this SparkPlan " + other)
