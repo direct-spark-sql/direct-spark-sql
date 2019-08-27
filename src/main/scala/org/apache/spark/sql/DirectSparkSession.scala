@@ -88,6 +88,7 @@ class DirectSparkSession private (
 
   def sqlDirectly(sqlText: String): DirectDataTable = {
     try {
+      SparkSession.setActiveSession(this)
       val df = sql(sqlText)
       val dfMirror = ru.runtimeMirror(getClass.getClassLoader).reflect(df)
       val deserializerLazyMethodSymbol =
