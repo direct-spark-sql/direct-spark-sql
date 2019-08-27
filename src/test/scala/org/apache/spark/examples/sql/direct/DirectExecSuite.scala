@@ -175,6 +175,16 @@ class DirectExecSuite extends TestBase {
     Assert.assertEquals("[8,200]", table.data.mkString(","))
   }
 
+  @Test
+  def testExpand(): Unit = {
+    assertEquals(
+      """
+        |SELECT name, genda, avg(age)
+        |FROM people
+        |GROUP BY name, genda
+        |GROUPING SETS ((name), (genda))
+        |""".stripMargin, true)
+  }
 
 }
 class StrLen extends UDF {

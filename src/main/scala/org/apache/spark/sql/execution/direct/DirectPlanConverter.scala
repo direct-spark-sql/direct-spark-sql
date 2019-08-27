@@ -179,6 +179,12 @@ object DirectPlanConverter {
       case FilterExec(condition, child) =>
         FilterDirectExec(condition, convertToDirectPlan(child))
 
+      case expandExec: ExpandExec =>
+        ExpandDirectExec(
+          expandExec.projections,
+          expandExec.output,
+          convertToDirectPlan(expandExec.child))
+
       case broadcastNestedLoopJoinExec: BroadcastNestedLoopJoinExec =>
         DirectPlanAdapter(broadcastNestedLoopJoinExec)
       case cartesianProductExec: CartesianProductExec =>
