@@ -31,13 +31,14 @@ import org.apache.spark.sql.SparkSession.{setActiveSession, setDefaultSession}
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateSafeProjection
-import org.apache.spark.sql.catalyst.plans.logical.LocalRelation
+import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, Project, SubqueryAlias}
 import org.apache.spark.sql.execution.direct.{
   DirectExecutionContext,
   DirectPlanConverter,
   DirectPlanStrategies
 }
 import org.apache.spark.sql.internal.{BaseSessionStateBuilder, SessionState, SharedState}
+import org.apache.spark.sql.types.{StructField, StructType}
 import org.apache.spark.util.Utils
 
 class DirectSparkSession private (
@@ -127,6 +128,22 @@ class DirectSparkSession private (
           table.data.map(converter(_).asInstanceOf[InternalRow])))
       .logicalPlan
     sessionState.catalog.createTempView(name, plan, true)
+  }
+
+  def tempView(name: String): DirectDataTable = {
+    val identifier = sessionState.sqlParser.parseTableIdentifier(name)
+    val relation = sessionState.catalog.lookupRelation(identifier)
+    val (output, data) = relation match {
+      case SubqueryAlias(_, Project(_, LocalRelation(output, data, _))) =>
+        (output, data)
+      case SubqueryAlias(_, LocalRelation(output, data, _)) =>
+        (output, data)
+      case other => throw new RuntimeException("unexpected Relation[" + other + "]")
+    }
+    val schema = StructType(output.map(attr => StructField(attr.name, attr.dataType)))
+    val converter = CatalystTypeConverters.createToScalaConverter(schema)
+    val rows = data.map(converter(_).asInstanceOf[Row])
+    DirectDataTable(schema, rows)
   }
 
 }
