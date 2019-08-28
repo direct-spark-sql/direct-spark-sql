@@ -186,6 +186,20 @@ class DirectExecSuite extends TestBase {
         |""".stripMargin, true)
   }
 
+  @Test
+  def testTempView(): Unit = {
+    val table = spark.sqlDirectly(
+      """
+        |select
+        |genda, count(1) as cnt
+        |from people
+        |group by genda
+        |order by genda
+        |""".stripMargin)
+    spark.registerTempView("test", table)
+    Assert.assertEquals("[0,2],[1,3]", spark.tempView("test").data.mkString(","))
+  }
+
 }
 class StrLen extends UDF {
 
