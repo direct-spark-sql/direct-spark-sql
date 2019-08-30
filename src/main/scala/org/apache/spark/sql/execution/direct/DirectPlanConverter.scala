@@ -119,8 +119,12 @@ object DirectPlanConverter {
         SortDirectExec(sortExec.sortOrder, convertToDirectPlan(sortExec.child))
 
       // limit
-      case localLimitExec: LocalLimitExec =>
+      case localLimitExec: BaseLimitExec =>
         LimitDirectExec(localLimitExec.limit, convertToDirectPlan(localLimitExec.child))
+
+      // limit
+      case collectLimitExec: CollectLimitExec =>
+        LimitDirectExec(collectLimitExec.limit, convertToDirectPlan(collectLimitExec.child))
 
       // join
       case hashJoin: HashJoin =>
