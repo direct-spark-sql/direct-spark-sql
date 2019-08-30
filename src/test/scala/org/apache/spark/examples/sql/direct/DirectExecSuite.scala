@@ -200,6 +200,28 @@ class DirectExecSuite extends TestBase {
     Assert.assertEquals("[0,2],[1,3]", spark.tempView("test").data.mkString(","))
   }
 
+  @Test
+  def testLimit(): Unit = {
+    assertEquals(
+      """
+        |select
+        |*
+        |from people
+        |limit 2
+        |""".stripMargin)
+
+    assertEquals(
+      """
+        |select
+        |*
+        |from people t1
+        |join people2 t2
+        |on
+        |t1.name = t2.name
+        |limit 1
+        |""".stripMargin)
+  }
+
 }
 class StrLen extends UDF {
 
