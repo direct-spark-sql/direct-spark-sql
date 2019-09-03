@@ -17,6 +17,8 @@
 
 package org.apache.spark.examples.sql.direct
 
+import java.util.concurrent.{CountDownLatch, Executors}
+
 import org.apache.hadoop.hive.ql.exec.UDF
 import org.junit.{After, Assert, Before, Test}
 
@@ -221,6 +223,85 @@ class DirectExecSuite extends TestBase {
         |limit 1
         |""".stripMargin)
   }
+
+  @Test
+  def testMultiThread(): Unit = {
+    val sql =
+      """
+        |select age, count(1) as cnt from
+        |(
+        |select
+        |t1.name, t1.age
+        |from people t1
+        |join people2 t2
+        |on
+        |t1.age = t2.age
+        |) group by age
+        |""".stripMargin
+    val exp = spark.sql(sql).collect().map(_.mkString(",")).mkString("\n")
+    val service = Executors.newFixedThreadPool(10)
+    val latch = new CountDownLatch(10)
+    (0 until 10).foreach(_ => {
+      service.submit(new Runnable {
+        override def run(): Unit = {
+          var startTime = System.currentTimeMillis()
+          val endTime = startTime + 30000
+          while (System.currentTimeMillis() < endTime) {
+            Assert.assertEquals(exp,
+              spark.sqlDirectly(sql).data.map(_.mkString(",")).mkString("\n"))
+            startTime = System.currentTimeMillis()
+          }
+          latch.countDown()
+        }
+      })
+    })
+    latch.await()
+  }
+
+  @Test
+  def testMultiThread2(): Unit = {
+    val sql =
+      """
+        |select age, count(1) as cnt from
+        |(
+        |select
+        |t1.name, t1.age
+        |from people t1
+        |join people2 t2
+        |on
+        |t1.age = t2.age
+        |) group by age
+        |""".stripMargin
+    val exp = spark.sql(sql).collect().map(_.mkString(",")).mkString("\n")
+    val service = Executors.newFixedThreadPool(10)
+    val latch = new CountDownLatch(10)
+    (0 until 10).foreach(_ => {
+      service.submit(new Runnable {
+        override def run(): Unit = {
+          val session = spark.newSession()
+          session
+            .createDataFrame(
+              Seq(("a", 2, 0), ("bbb", 2, 1), ("c", 3, 0), ("ddd", 4, 1), ("e", 5, 1)))
+            .toDF("name", "age", "genda")
+            .createOrReplaceTempView("people")
+          session
+            .createDataFrame(Seq(("a", 1, 0), ("b", 2, 1), ("c", 3, 0)))
+            .toDF("name", "age", "genda")
+            .createOrReplaceTempView("people2")
+          var startTime = System.currentTimeMillis()
+          val endTime = startTime + 30000
+          while (System.currentTimeMillis() < endTime) {
+            Assert.assertEquals(exp,
+              session.sqlDirectly(sql).data.map(_.mkString(",")).mkString("\n"))
+            startTime = System.currentTimeMillis()
+          }
+          latch.countDown()
+        }
+      })
+    })
+    latch.await()
+  }
+
 
 }
 class StrLen extends UDF {
