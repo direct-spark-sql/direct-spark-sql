@@ -1,7 +1,7 @@
 # direct-spark-sql
 a hyper-optimized single-node(local) version of spark sql engine, which's fundamental data structure  is scala Iterator rather than RDD.
 
-##Usage
+## Usage
 see [DirectExecSuite.scala](https://github.com/direct-spark-sql/direct-spark-sql/blob/master/src/test/scala/org/apache/spark/examples/sql/direct/DirectExecSuite.scala)
 ```
 val spark = DirectSparkSession.builder().getOrCreate()
