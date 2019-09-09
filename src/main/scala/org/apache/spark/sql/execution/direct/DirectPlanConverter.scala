@@ -189,6 +189,9 @@ object DirectPlanConverter {
           expandExec.output,
           convertToDirectPlan(expandExec.child))
 
+      case TakeOrderedAndProjectExec(limit, sortOrder, projectList, child) =>
+        TakeOrderedAndProjectDirectExec(limit, sortOrder, projectList, convertToDirectPlan(child))
+
       case broadcastNestedLoopJoinExec: BroadcastNestedLoopJoinExec =>
         DirectPlanAdapter(broadcastNestedLoopJoinExec)
       case cartesianProductExec: CartesianProductExec =>
