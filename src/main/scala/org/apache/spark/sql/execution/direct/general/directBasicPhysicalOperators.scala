@@ -137,13 +137,6 @@ abstract class BaseSubqueryDirectExec extends DirectPlan {
 
 }
 
-case class LimitDirectExec(limit: Int, child: DirectPlan) extends UnaryDirectExecNode {
-  override def doExecute(): Iterator[InternalRow] = {
-    child.execute().take(limit)
-  }
-  override def output: Seq[Attribute] = child.output
-}
-
 object SubqueryDirectExec {
   private[execution] val executionContext =
     ExecutionContext.fromExecutorService(ThreadUtils.newDaemonFixedThreadPool(16, "subquery"))
