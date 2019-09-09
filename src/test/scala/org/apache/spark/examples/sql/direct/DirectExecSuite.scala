@@ -302,6 +302,27 @@ class DirectExecSuite extends TestBase {
     latch.await()
   }
 
+  @Test
+  def testTakeOrderedAndProjectExec(): Unit = {
+    assertEquals(
+      """
+        |select
+        |*
+        |from people
+        |order by age
+        |limit 2
+        |""".stripMargin, true)
+
+    assertEquals(
+      """
+        |select
+        |name
+        |from people
+        |order by age
+        |limit 2
+        |""".stripMargin, true)
+  }
+
 
 }
 class StrLen extends UDF {
