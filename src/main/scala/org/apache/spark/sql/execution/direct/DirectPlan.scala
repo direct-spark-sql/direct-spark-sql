@@ -17,6 +17,8 @@
 
 package org.apache.spark.sql.execution.direct
 
+import scala.collection.mutable
+
 import org.codehaus.commons.compiler.CompileException
 import org.codehaus.janino.InternalCompilerException
 
@@ -62,7 +64,7 @@ abstract class DirectPlan extends QueryPlan[DirectPlan] with Logging {
     DirectExecutionContext
       .get()
       .planMetricsMap
-      .getOrElseUpdate(this, scala.collection.mutable.Map[String, SQLMetric]())
+      .getOrElseUpdate(this, { mutable.Map[String, SQLMetric]() })
 
   }
 
