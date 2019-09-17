@@ -17,12 +17,14 @@
 
 package org.apache.spark.sql.execution.direct
 
-import java.util.EventListener
+import java.util.{EventListener, TimeZone}
 import java.util.function.Supplier
 
+import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.execution.metric.SQLMetric
 
 
@@ -40,9 +42,20 @@ object DirectExecutionContext {
 }
 class DirectExecutionContext {
 
-  val planMetricsMap
-    : scala.collection.mutable.Map[DirectPlan, scala.collection.mutable.Map[String, SQLMetric]] =
-    scala.collection.mutable.Map[DirectPlan, scala.collection.mutable.Map[String, SQLMetric]]()
+  val planMetricsMap = mutable.Map[DirectPlan, mutable.Map[String, SQLMetric]]()
+
+  lazy val currentTimeMillis = System.currentTimeMillis()
+
+  lazy val currentTime = currentTimeMillis * 1000L
+
+  lazy val currentDates = mutable.Map[String, Int]()
+
+  def getCurrentDate(timeZone: TimeZone): Int = {
+    currentDates.getOrElseUpdate(timeZone.getID, {
+      DateTimeUtils.millisToDays(currentTimeMillis, timeZone) })
+  }
+
+  def currentTimestamp(): Long = currentTime
 
   val activeSparkSession: SparkSession = SparkSession.active
 
