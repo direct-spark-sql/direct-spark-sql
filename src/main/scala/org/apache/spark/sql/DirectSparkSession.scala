@@ -251,7 +251,7 @@ object DirectSparkSession extends Logging {
       config("spark.ui.enabled", false)
       config("spark.sql.shuffle.partitions", 1)
       config("spark.default.parallelism", 1)
-      config("spark.executor.heartbeatInterval", 60)
+      config("spark.executor.heartbeatInterval", "60s")
       config("spark.sql.codegen.wholeStage", true)
       config("spark.sql.codegen.fallback", false)
       config("spark.sql.autoBroadcastJoinThreshold", 0)

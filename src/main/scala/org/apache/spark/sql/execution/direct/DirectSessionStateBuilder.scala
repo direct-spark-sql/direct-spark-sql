@@ -37,8 +37,16 @@ import org.apache.spark.sql.catalyst.analysis.{
   UpdateOuterReferences
 }
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
+import org.apache.spark.sql.catalyst.expressions.{
+  CurrentDate,
+  CurrentTimestamp,
+  DirectCurrentDate,
+  DirectCurrentTimestamp
+}
+import org.apache.spark.sql.catalyst.optimizer.Optimizer
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.execution.SparkOptimizer
 import org.apache.spark.sql.hive.DirectSessionCatalog
 import org.apache.spark.sql.internal.{BaseSessionStateBuilder, SessionState}
 
@@ -138,6 +146,28 @@ class DirectSessionStateBuilder(session: SparkSession, parentState: Option[Sessi
             case _ => plan
           }
         case _ => plan
+      }
+    }
+  }
+
+  override protected def optimizer: Optimizer = {
+    new SparkOptimizer(catalog, experimentalMethods) {
+
+      override def preOptimizationBatches: Seq[Batch] = {
+        Batch("Direct time", Once, DirectCurrentTime) :: Nil
+      }
+
+      override def extendedOperatorOptimizationRules: Seq[Rule[LogicalPlan]] =
+        super.extendedOperatorOptimizationRules ++ customOperatorOptimizationRules
+
+      object DirectCurrentTime extends Rule[LogicalPlan] {
+        def apply(plan: LogicalPlan): LogicalPlan = {
+          plan transformAllExpressions {
+            case CurrentDate(Some(timeZoneId)) =>
+              DirectCurrentDate(Some(timeZoneId))
+            case CurrentTimestamp() => DirectCurrentTimestamp()
+          }
+        }
       }
     }
   }

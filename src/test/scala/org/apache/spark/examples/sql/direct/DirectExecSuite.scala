@@ -323,6 +323,20 @@ class DirectExecSuite extends TestBase {
         |""".stripMargin, true)
   }
 
+  @Test
+  def testTime(): Unit = {
+    val first = spark.sqlDirectly(
+      """
+        |select current_date as m, current_date as n, current_timestamp as tm, current_timestamp as tm1
+        |""".stripMargin).data.mkString(",")
+    Thread.sleep(1000L)
+    val second = spark.sqlDirectly(
+      """
+        |select current_date as m, current_date as n, current_timestamp as tm, current_timestamp as tm1
+        |""".stripMargin).data.mkString(",")
+    Assert.assertNotEquals(first, second)
+  }
+
 
 }
 class StrLen extends UDF {
