@@ -19,6 +19,7 @@ package org.apache.spark.sql.execution.direct.general
 
 import java.util.concurrent.TimeUnit.NANOSECONDS
 
+import org.apache.spark.memory.{StaticMemoryManager, TaskMemoryManager}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.plans.JoinType
@@ -44,7 +45,13 @@ case class HashJoinDirectExec(
     val buildTime = longMetric("buildTime", DirectSQLMetrics.createTimingMetric())
     val start = System.nanoTime()
     val relation =
-      HashedRelation(buildIter, buildKeys)
+      HashedRelation(buildIter, buildKeys, taskMemoryManager = new TaskMemoryManager(
+        new StaticMemoryManager(
+          DirectExecutionContext.get().activeSparkSession.sparkContext.conf,
+          Long.MaxValue,
+          Long.MaxValue,
+          1),
+        0))
     DirectExecutionContext.get().addExecutionCompletionListener { _ =>
       relation.close()
     }

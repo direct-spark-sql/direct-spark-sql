@@ -84,11 +84,17 @@ trait DirectHashJoin {
     }
   }
 
-  protected def buildSideKeyGenerator(): Projection =
-    UnsafeProjection.create(buildKeys)
+  protected val buildSideKeyGenerator: ThreadLocal[Projection] =
+    new ThreadLocal[Projection] {
+      override def initialValue(): Projection =
+        UnsafeProjection.create(buildKeys)
+    }
 
-  protected def streamSideKeyGenerator(): UnsafeProjection =
-    UnsafeProjection.create(streamedKeys)
+  protected val streamSideKeyGenerator: ThreadLocal[UnsafeProjection] =
+    new ThreadLocal[UnsafeProjection] {
+      override def initialValue(): UnsafeProjection =
+        UnsafeProjection.create(streamedKeys)
+    }
 
   @transient private[this] lazy val boundCondition = if (condition.isDefined) {
     newPredicate(condition.get, streamedPlan.output ++ buildPlan.output).eval _
@@ -96,21 +102,26 @@ trait DirectHashJoin {
     true
   }
 
-  protected def createResultProjection(): (InternalRow) => InternalRow = joinType match {
-    case LeftExistence(_) =>
-      UnsafeProjection.create(output, output)
-    case _ =>
-      // Always put the stream side on left to simplify implementation
-      // both of left and right side could be null
-      UnsafeProjection
-        .create(output, (streamedPlan.output ++ buildPlan.output).map(_.withNullability(true)))
-  }
+  val createResultProjection: ThreadLocal[(InternalRow) => InternalRow] =
+    new ThreadLocal[(InternalRow) => InternalRow] {
+      override def initialValue(): InternalRow => InternalRow = {
+        joinType match {
+          case LeftExistence(_) =>
+            UnsafeProjection.create(output, output)
+          case _ =>
+            // Always put the stream side on left to simplify implementation
+            // both of left and right side could be null
+            UnsafeProjection.create(output,
+              (streamedPlan.output ++ buildPlan.output).map(_.withNullability(true)))
+        }
+      }
+    }
 
   private def innerJoin(
       streamIter: Iterator[InternalRow],
       hashedRelation: HashedRelation): Iterator[InternalRow] = {
     val joinRow = new JoinedRow
-    val joinKeys = streamSideKeyGenerator()
+    val joinKeys = streamSideKeyGenerator.get()
     streamIter.flatMap { srow =>
       joinRow.withLeft(srow)
       val matches = hashedRelation.get(joinKeys(srow))
@@ -126,7 +137,7 @@ trait DirectHashJoin {
       streamedIter: Iterator[InternalRow],
       hashedRelation: HashedRelation): Iterator[InternalRow] = {
     val joinedRow = new JoinedRow()
-    val keyGenerator = streamSideKeyGenerator()
+    val keyGenerator = streamSideKeyGenerator.get()
     val nullRow = new GenericInternalRow(buildPlan.output.length)
 
     streamedIter.flatMap { currentRow =>
@@ -158,7 +169,7 @@ trait DirectHashJoin {
   private def semiJoin(
       streamIter: Iterator[InternalRow],
       hashedRelation: HashedRelation): Iterator[InternalRow] = {
-    val joinKeys = streamSideKeyGenerator()
+    val joinKeys = streamSideKeyGenerator.get()
     val joinedRow = new JoinedRow
     streamIter.filter { current =>
       val key = joinKeys(current)
@@ -173,7 +184,7 @@ trait DirectHashJoin {
   private def existenceJoin(
       streamIter: Iterator[InternalRow],
       hashedRelation: HashedRelation): Iterator[InternalRow] = {
-    val joinKeys = streamSideKeyGenerator()
+    val joinKeys = streamSideKeyGenerator.get()
     val result = new GenericInternalRow(Array[Any](null))
     val joinedRow = new JoinedRow
     streamIter.map { current =>
@@ -191,7 +202,7 @@ trait DirectHashJoin {
   private def antiJoin(
       streamIter: Iterator[InternalRow],
       hashedRelation: HashedRelation): Iterator[InternalRow] = {
-    val joinKeys = streamSideKeyGenerator()
+    val joinKeys = streamSideKeyGenerator.get()
     val joinedRow = new JoinedRow
     streamIter.filter { current =>
       val key = joinKeys(current)
@@ -223,7 +234,7 @@ trait DirectHashJoin {
           s"BroadcastHashJoin should not take $x as the JoinType")
     }
 
-    val resultProj = createResultProjection
+    val resultProj = createResultProjection.get()
     joinedIter.map { r =>
       numOutputRows += 1
       resultProj(r)

@@ -18,9 +18,13 @@
 package org.apache.spark.sql
 
 import java.util.Properties
+import java.util.concurrent.Callable
 
+import scala.collection.mutable.ListBuffer
 import scala.reflect.runtime.{universe => ru}
 import scala.util.control.NonFatal
+
+import com.google.common.cache.CacheBuilder
 
 import org.apache.spark.{SparkConf, SparkContext, TaskContext, TaskContextImpl}
 import org.apache.spark.internal.Logging
@@ -29,14 +33,10 @@ import org.apache.spark.memory.{TaskMemoryManager, UnifiedMemoryManager}
 import org.apache.spark.scheduler.{SparkListener, SparkListenerApplicationEnd}
 import org.apache.spark.sql.SparkSession.{setActiveSession, setDefaultSession}
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
-import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.catalyst.expressions.{Expression, Projection}
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateSafeProjection
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, Project, SubqueryAlias}
-import org.apache.spark.sql.execution.direct.{
-  DirectExecutionContext,
-  DirectPlanConverter,
-  DirectPlanStrategies
-}
+import org.apache.spark.sql.execution.direct.{DirectExecutionContext, DirectPlan, DirectPlanConverter, DirectPlanStrategies}
 import org.apache.spark.sql.internal.{BaseSessionStateBuilder, SessionState, SharedState}
 import org.apache.spark.sql.types.{StructField, StructType}
 import org.apache.spark.util.Utils
@@ -90,26 +90,36 @@ class DirectSparkSession private (
   def sqlDirectly(sqlText: String): DirectDataTable = {
     try {
       SparkSession.setActiveSession(this)
-      val df = sql(sqlText)
-      val dfMirror = ru.runtimeMirror(getClass.getClassLoader).reflect(df)
-      val deserializerLazyMethodSymbol =
-        ru.typeOf[DataFrame].member(ru.TermName("deserializer")).asMethod
-      val deserializerLazyMethodMirror = dfMirror.reflectMethod(deserializerLazyMethodSymbol)
-      val deserializer = deserializerLazyMethodMirror().asInstanceOf[Expression]
+      val (schema, deserializer, directExecutedPlan) = DirectSparkSession.cache.get(
+        namespace + sqlText,
+        new Callable[(StructType, Expression, DirectPlan)] {
+        override def call(): (StructType, Expression, DirectPlan) = {
+          val df = sql(sqlText)
+          val dfMirror = ru.runtimeMirror(getClass.getClassLoader).reflect(df)
+          val deserializerLazyMethodSymbol =
+            ru.typeOf[DataFrame].member(ru.TermName("deserializer")).asMethod
+          val deserializerLazyMethodMirror =
+            dfMirror.reflectMethod(deserializerLazyMethodSymbol)
+          val deserializer = deserializerLazyMethodMirror().asInstanceOf[Expression]
+          val directExecutedPlan =
+            DirectPlanConverter.convert(df.queryExecution.sparkPlan)
+          (df.schema, deserializer, directExecutedPlan)
+        }
+      })
+
       val objProj = GenerateSafeProjection.generate(deserializer :: Nil)
 
       // hold current active SparkSession
       DirectExecutionContext.get()
-      val directExecutedPlan = DirectPlanConverter.convert(df.queryExecution.sparkPlan)
       val taskMemoryManager = new TaskMemoryManager(
-        UnifiedMemoryManager.apply(new SparkConf().set(MEMORY_OFFHEAP_ENABLED.key, "false"), 1),
+        UnifiedMemoryManager.apply(this.sparkContext.conf, 1),
         0)
       // prepare a TaskContext for execution
       TaskContext.setTaskContext(
         new TaskContextImpl(0, 0, 0, 0, 0, taskMemoryManager, new Properties, null))
       val iter = directExecutedPlan.execute()
       val data = iter.map(objProj(_).get(0, null).asInstanceOf[Row]).toArray
-      DirectDataTable(df.schema, data)
+      DirectDataTable(schema, data)
     } finally {
       DirectExecutionContext.get().markCompleted()
       TaskContext.unset()
@@ -120,13 +130,9 @@ class DirectSparkSession private (
   def registerTempView(name: String, table: DirectDataTable): Unit = {
     SparkSession.setActiveSession(this)
     val converter = CatalystTypeConverters.createToCatalystConverter(table.schema)
-    val plan = Dataset
-      .ofRows(
-        self,
-        LocalRelation(
+    val plan = LocalRelation(
           table.schema.toAttributes,
-          table.data.map(converter(_).asInstanceOf[InternalRow])))
-      .logicalPlan
+          table.data.map(converter(_).asInstanceOf[InternalRow]))
     sessionState.catalog.createTempView(name, plan, true)
   }
 
@@ -142,9 +148,78 @@ class DirectSparkSession private (
     }
     val schema = StructType(output.map(attr => StructField(attr.name, attr.dataType)))
     val converter = CatalystTypeConverters.createToScalaConverter(schema)
-    val rows = data.map(converter(_).asInstanceOf[Row])
+    val rows = data.par.map(converter(_).asInstanceOf[Row]).toArray
+
     DirectDataTable(schema, rows)
   }
+
+  def tempViewJava(name: String): java.util.List[java.util.Map[String, Any]] = {
+    val identifier = sessionState.sqlParser.parseTableIdentifier(name)
+    val relation = sessionState.catalog.lookupRelation(identifier)
+    val (output, data) = relation match {
+      case SubqueryAlias(_, Project(_, LocalRelation(output, data, _))) =>
+        (output, data)
+      case SubqueryAlias(_, LocalRelation(output, data, _)) =>
+        (output, data)
+      case other => throw new RuntimeException("unexpected Relation[" + other + "]")
+    }
+    val schema = StructType(output.map(attr => StructField(attr.name, attr.dataType)))
+    val columnsWithIdx = output.map(_.name).zipWithIndex
+    val converter = CatalystTypeConverters.createToScalaConverter(schema)
+    import scala.collection.JavaConverters._
+    val rows = data.par.map(e => {
+      val row = converter(e).asInstanceOf[Row]
+      val map: java.util.Map[String, Any] = new java.util.HashMap[String, Any]()
+      columnsWithIdx.map {
+        case (column, idx) => map.put(column, row.get(idx))
+      }
+      map
+    }).toList.asJava
+    rows
+  }
+
+  def executeAndRegisterTempView(sqlText: String, name: String): Int = {
+    try {
+      SparkSession.setActiveSession(this)
+      val (schema, _, directExecutedPlan) = DirectSparkSession.cache.get(
+        namespace + sqlText,
+        new Callable[(StructType, Expression, DirectPlan)] {
+          override def call(): (StructType, Expression, DirectPlan) = {
+            val df = sql(sqlText)
+            val dfMirror = ru.runtimeMirror(getClass.getClassLoader).reflect(df)
+            val deserializerLazyMethodSymbol =
+              ru.typeOf[DataFrame].member(ru.TermName("deserializer")).asMethod
+            val deserializerLazyMethodMirror =
+              dfMirror.reflectMethod(deserializerLazyMethodSymbol)
+            val deserializer = deserializerLazyMethodMirror().asInstanceOf[Expression]
+            val directExecutedPlan =
+              DirectPlanConverter.convert(df.queryExecution.sparkPlan)
+            (df.schema, deserializer, directExecutedPlan)
+          }
+        })
+
+      // hold current active SparkSession
+      DirectExecutionContext.get()
+      val taskMemoryManager = new TaskMemoryManager(
+        UnifiedMemoryManager.apply(this.sparkContext.conf, 1),
+        0)
+      // prepare a TaskContext for execution
+      TaskContext.setTaskContext(
+        new TaskContextImpl(0, 0, 0, 0, 0, taskMemoryManager, new Properties, null))
+      val data = directExecutedPlan.execute().map(_.copy()).toList
+      val plan = LocalRelation(schema.toAttributes, data)
+      sessionState.catalog.createTempView(name, plan, true)
+      data.size
+    } finally {
+      DirectExecutionContext.get().markCompleted()
+      TaskContext.unset()
+      DirectExecutionContext.unset()
+    }
+  }
+
+  private var namespace = ""
+
+  def setNamespace(namespace: String): Unit = this.namespace = namespace
 
 }
 
@@ -331,5 +406,10 @@ object DirectSparkSession extends Logging {
    * @since 2.0.0
    */
   def builder(): Builder = new Builder
+
+  private val cache = CacheBuilder
+    .newBuilder()
+    .maximumSize(System.getProperty("direct.plan.cache.size", "1000").toLong)
+    .build[String, (StructType, Expression, DirectPlan)]()
 
 }

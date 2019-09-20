@@ -24,7 +24,7 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
 import org.apache.spark.sql.execution.direct.general._
-import org.apache.spark.sql.execution.joins.{BroadcastNestedLoopJoinExec, CartesianProductExec, HashJoin}
+import org.apache.spark.sql.execution.joins.{BroadcastNestedLoopJoinExec, CartesianProductExec, HashJoin, NestedLoopJoinDirectExec}
 import org.apache.spark.sql.execution.window.{WindowDirectExec, WindowExec}
 import org.apache.spark.sql.internal.SQLConf
 
@@ -192,8 +192,9 @@ object DirectPlanConverter {
       case TakeOrderedAndProjectExec(limit, sortOrder, projectList, child) =>
         TakeOrderedAndProjectDirectExec(limit, sortOrder, projectList, convertToDirectPlan(child))
 
-      case broadcastNestedLoopJoinExec: BroadcastNestedLoopJoinExec =>
-        DirectPlanAdapter(broadcastNestedLoopJoinExec)
+      case BroadcastNestedLoopJoinExec(left, right, buildSide, joinType, condition) =>
+        NestedLoopJoinDirectExec(
+          convertToDirectPlan(left), convertToDirectPlan(right), buildSide, joinType, condition)
       case cartesianProductExec: CartesianProductExec =>
         DirectPlanAdapter(cartesianProductExec)
 
