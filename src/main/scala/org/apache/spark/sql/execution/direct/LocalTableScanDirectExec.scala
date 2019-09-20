@@ -36,14 +36,15 @@ case class LocalTableScanDirectExec(output: Seq[Attribute], name: TableIdentifie
         case other => throw new RuntimeException("unexpected Relation[" + other + "]")
       }
     }
-    val unsafeRows: Array[InternalRow] = {
-      if (rows.isEmpty) {
-        Array.empty
-      } else {
-        val proj = UnsafeProjection.create(output, output)
-        rows.map(r => proj(r).copy()).toArray
-      }
-    }
-    unsafeRows.toIterator
+//    val unsafeRows: Array[InternalRow] = {
+//      if (rows.isEmpty) {
+//        Array.empty
+//      } else {
+//        val proj = UnsafeProjection.create(output, output)
+//        rows.map(r => proj(r).copy()).toArray
+//      }
+//    }
+//    unsafeRows.toIterator
+    rows.toIterator
   }
 }
