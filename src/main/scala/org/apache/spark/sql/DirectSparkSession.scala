@@ -132,7 +132,7 @@ class DirectSparkSession private (
     val converter = CatalystTypeConverters.createToCatalystConverter(table.schema)
     val plan = LocalRelation(
           table.schema.toAttributes,
-          table.data.map(converter(_).asInstanceOf[InternalRow]))
+          table.data.par.map(converter(_).asInstanceOf[InternalRow]).toList)
     sessionState.catalog.createTempView(name, plan, true)
   }
 
