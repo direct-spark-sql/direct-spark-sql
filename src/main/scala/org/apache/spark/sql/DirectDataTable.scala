@@ -44,8 +44,9 @@ object DirectDataTable {
   def fromJavaMapList(
       schema: StructType,
       javaData: java.util.List[java.util.Map[String, Any]]): DirectDataTable = {
-    val data = javaData.asScala.map(e =>
+    val data = javaData.asScala.par.map(e =>
       Row.fromSeq(schema.map(f => JavaTypeConverter.convert(e.get(f.name), f.dataType))))
+        .toList
     DirectDataTable(schema, data)
   }
 }
