@@ -206,15 +206,17 @@ object GenerateSafeProjection extends CodeGenerator[Seq[Expression], Projection]
   }
 
   protected def create(expressions: Seq[Expression]): Projection = {
-    cache.get(expressions)
+    cache.get(expressions).get
   }
 
   private val cache = CacheBuilder
     .newBuilder()
     .maximumSize(System.getProperty("direct.projection.safe.cache.size", "1000").toLong)
-    .build(new CacheLoader[Seq[Expression], Projection] {
-      override def load(key: Seq[Expression]): Projection = {
-        doCreate(key)
+    .build(new CacheLoader[Seq[Expression], ThreadLocal[Projection]] {
+      override def load(key: Seq[Expression]): ThreadLocal[Projection] = {
+        new ThreadLocal[Projection] {
+          override def initialValue(): Projection = doCreate(key)
+        }
       }
     })
 }
