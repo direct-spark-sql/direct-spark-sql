@@ -49,8 +49,6 @@ object DirectPlanStrategies {
 
   object JoinSelection extends Strategy with PredicateHelper {
 
-    val conf: SQLConf = SQLConf.get
-
     private def canBuildRight(joinType: JoinType): Boolean = joinType match {
       case _: InnerLike | LeftOuter | LeftSemi | LeftAnti | _: ExistenceJoin => true
       case _ => false
