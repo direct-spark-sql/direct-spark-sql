@@ -18,31 +18,9 @@
 package org.apache.spark.sql.execution.direct
 
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.analysis.{
-  AliasViewChild,
-  Analyzer,
-  CleanupAliases,
-  EliminateUnions,
-  ResolveCreateNamedStruct,
-  ResolveHigherOrderFunctions,
-  ResolveHints,
-  ResolveInlineTables,
-  ResolveLambdaVariables,
-  ResolveTableValuedFunctions,
-  ResolveTimeZone,
-  SubstituteUnresolvedOrdinals,
-  TimeWindowing,
-  TypeCoercion,
-  UnresolvedRelation,
-  UpdateOuterReferences
-}
+import org.apache.spark.sql.catalyst.analysis.{AliasViewChild, Analyzer, CleanupAliases, EliminateUnions, ResolveCreateNamedStruct, ResolveHigherOrderFunctions, ResolveHints, ResolveInlineTables, ResolveLambdaVariables, ResolveTableValuedFunctions, ResolveTimeZone, SubstituteUnresolvedOrdinals, TimeWindowing, TypeCoercion, UnresolvedRelation, UpdateOuterReferences}
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
-import org.apache.spark.sql.catalyst.expressions.{
-  CurrentDate,
-  CurrentTimestamp,
-  DirectCurrentDate,
-  DirectCurrentTimestamp
-}
+import org.apache.spark.sql.catalyst.expressions.{CurrentDate, CurrentTimestamp, DirectCurrentDate, DirectCurrentTimestamp, DirectFromUnixTime, DirectToUnixTimestamp, DirectUnixTimestamp, FromUnixTime, ToUnixTimestamp, UnixTimestamp}
 import org.apache.spark.sql.catalyst.optimizer.Optimizer
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules.Rule
@@ -154,18 +132,24 @@ class DirectSessionStateBuilder(session: SparkSession, parentState: Option[Sessi
     new SparkOptimizer(catalog, experimentalMethods) {
 
       override def preOptimizationBatches: Seq[Batch] = {
-        Batch("Direct time", Once, DirectCurrentTime) :: Nil
+        Batch("Direct time", Once, DirectTime) :: Nil
       }
 
       override def extendedOperatorOptimizationRules: Seq[Rule[LogicalPlan]] =
         super.extendedOperatorOptimizationRules ++ customOperatorOptimizationRules
 
-      object DirectCurrentTime extends Rule[LogicalPlan] {
+      object DirectTime extends Rule[LogicalPlan] {
         def apply(plan: LogicalPlan): LogicalPlan = {
           plan transformAllExpressions {
             case CurrentDate(Some(timeZoneId)) =>
               DirectCurrentDate(Some(timeZoneId))
             case CurrentTimestamp() => DirectCurrentTimestamp()
+            case ToUnixTimestamp(timeExp, format, timeZoneId) =>
+              DirectToUnixTimestamp(timeExp, format, timeZoneId)
+            case UnixTimestamp(timeExp, format, timeZoneId) =>
+              DirectUnixTimestamp(timeExp, format, timeZoneId)
+            case FromUnixTime(sec, format, timeZoneId) =>
+              DirectFromUnixTime(sec, format, timeZoneId)
           }
         }
       }

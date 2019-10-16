@@ -381,22 +381,26 @@ object GenerateUnsafeProjection extends CodeGenerator[Seq[Expression], UnsafePro
   private def create(
                       expressions: Seq[Expression],
                       subexpressionEliminationEnabled: Boolean): UnsafeProjection = {
-    val ((clazz, _), ctx) = cache.get((expressions, subexpressionEliminationEnabled)).get
+    val ((clazz, _), ctx) = if (cacheEnable) {
+      cache.get((expressions, subexpressionEliminationEnabled))
+    } else doCreate(expressions, subexpressionEliminationEnabled)
     clazz.generate(ctx.references.toArray).asInstanceOf[UnsafeProjection]
   }
 
+  private val cacheSize: Long = System.getProperty(
+    "direct.projection.unsafe.cache.size", "1000").toLong
+
+  private val cacheEnable = cacheSize != 0L
+
   private val cache = CacheBuilder
     .newBuilder()
-    .maximumSize(System.getProperty("direct.projection.unsafe.cache.size", "1000").toLong)
+    .maximumSize(cacheSize)
     .build(
       new CacheLoader[(Seq[Expression], Boolean),
-        ThreadLocal[((GeneratedClass, Int), CodegenContext)]] {
+        ((GeneratedClass, Int), CodegenContext)] {
       override def load(key: (Seq[Expression], Boolean)):
-      ThreadLocal[((GeneratedClass, Int), CodegenContext)] = {
-        new ThreadLocal[((GeneratedClass, Int), CodegenContext)] {
-          override def initialValue(): ((GeneratedClass, Int), CodegenContext) =
-            doCreate(key._1, key._2)
-        }
+      ((GeneratedClass, Int), CodegenContext) = {
+        doCreate(key._1, key._2)
       }
     })
 }
