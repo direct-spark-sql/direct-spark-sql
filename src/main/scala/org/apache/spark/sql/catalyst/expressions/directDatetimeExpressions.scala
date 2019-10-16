@@ -18,8 +18,11 @@
 package org.apache.spark.sql.catalyst.expressions
 
 import java.text.DateFormat
+import java.util.Locale
 
 import scala.util.control.NonFatal
+
+import org.apache.commons.lang3.time.FastDateFormat
 
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen._
@@ -29,7 +32,7 @@ import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
 
 
-abstract class UnixTime
+abstract class DirectUnixTime
   extends BinaryExpression with TimeZoneAwareExpression with ExpectsInputTypes {
 
   override def inputTypes: Seq[AbstractDataType] =
@@ -88,12 +91,12 @@ abstract class UnixTime
     val javaType = CodeGenerator.javaType(dataType)
     left.dataType match {
       case StringType if right.foldable =>
-        val df = classOf[DateFormat].getName
+        val df = classOf[FastDateFormat].getName
         if (formatter == null) {
           ExprCode.forNullValue(dataType)
         } else {
           val formatterName = ctx.addReferenceObj("formatter",
-            DateTimeUtils.newDateFormat(constFormat.toString, timeZone), df)
+            FastDateFormat.getInstance(constFormat.toString, timeZone, Locale.US), df)
           val eval1 = left.genCode(ctx)
           ev.copy(code = code"""
             ${eval1.code}
@@ -147,6 +150,84 @@ abstract class UnixTime
 }
 
 /**
+ * Converts time string with given pattern.
+ * Deterministic version of [[UnixTimestamp]], must have at least one parameter.
+ */
+@ExpressionDescription(
+  usage = "_FUNC_(expr[, pattern]) - Returns the UNIX timestamp of the given time.",
+  examples = """
+    Examples:
+      > SELECT _FUNC_('2016-04-08', 'yyyy-MM-dd');
+       1460041200
+  """,
+  since = "1.6.0")
+case class DirectToUnixTimestamp(
+                            timeExp: Expression,
+                            format: Expression,
+                            timeZoneId: Option[String] = None)
+  extends DirectUnixTime {
+
+  def this(timeExp: Expression, format: Expression) = this(timeExp, format, None)
+
+  override def left: Expression = timeExp
+  override def right: Expression = format
+
+  override def withTimeZone(timeZoneId: String): TimeZoneAwareExpression =
+    copy(timeZoneId = Option(timeZoneId))
+
+  def this(time: Expression) = {
+    this(time, Literal("yyyy-MM-dd HH:mm:ss"))
+  }
+
+  override def prettyName: String = "to_unix_timestamp"
+}
+
+/**
+ * Converts time string with given pattern.
+ * (see [http://docs.oracle.com/javase/tutorial/i18n/format/simpleDateFormat.html])
+ * to Unix time stamp (in seconds), returns null if fail.
+ * Note that hive Language Manual says it returns 0 if fail, but in fact it returns null.
+ * If the second parameter is missing, use "yyyy-MM-dd HH:mm:ss".
+ * If no parameters provided, the first parameter will be current_timestamp.
+ * If the first parameter is a Date or Timestamp instead of String, we will ignore the
+ * second parameter.
+ */
+@ExpressionDescription(
+  usage = "_FUNC_([expr[, pattern]]) - Returns the UNIX timestamp of current or specified time.",
+  examples = """
+    Examples:
+      > SELECT _FUNC_();
+       1476884637
+      > SELECT _FUNC_('2016-04-08', 'yyyy-MM-dd');
+       1460041200
+  """,
+  since = "1.5.0")
+case class DirectUnixTimestamp(
+                                timeExp: Expression,
+                                format: Expression,
+                                timeZoneId: Option[String] = None)
+  extends DirectUnixTime {
+
+  def this(timeExp: Expression, format: Expression) = this(timeExp, format, None)
+
+  override def left: Expression = timeExp
+  override def right: Expression = format
+
+  override def withTimeZone(timeZoneId: String): TimeZoneAwareExpression =
+    copy(timeZoneId = Option(timeZoneId))
+
+  def this(time: Expression) = {
+    this(time, Literal("yyyy-MM-dd HH:mm:ss"))
+  }
+
+  def this() = {
+    this(CurrentTimestamp())
+  }
+
+  override def prettyName: String = "unix_timestamp"
+}
+
+/**
  * Converts the number of seconds from unix epoch (1970-01-01 00:00:00 UTC) to a string
  * representing the timestamp of that moment in the current system time zone in the given
  * format. If the format is missing, using format like "1970-01-01 00:00:00".
@@ -160,7 +241,10 @@ abstract class UnixTime
        1970-01-01 00:00:00
   """,
   since = "1.5.0")
-case class FromUnixTime(sec: Expression, format: Expression, timeZoneId: Option[String] = None)
+case class DirectFromUnixTime(
+                               sec: Expression,
+                               format: Expression,
+                               timeZoneId: Option[String] = None)
   extends BinaryExpression with TimeZoneAwareExpression with ImplicitCastInputTypes {
 
   def this(sec: Expression, format: Expression) = this(sec, format, None)
@@ -223,13 +307,13 @@ case class FromUnixTime(sec: Expression, format: Expression, timeZoneId: Option[
   }
 
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    val df = classOf[DateFormat].getName
+    val df = classOf[FastDateFormat].getName
     if (format.foldable) {
       if (formatter == null) {
         ExprCode.forNullValue(StringType)
       } else {
         val formatterName = ctx.addReferenceObj("formatter",
-          DateTimeUtils.newDateFormat(constFormat.toString, timeZone), df)
+          FastDateFormat.getInstance(constFormat.toString, timeZone, Locale.US), df)
         val t = left.genCode(ctx)
         ev.copy(code = code"""
           ${t.code}
