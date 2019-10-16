@@ -244,12 +244,10 @@ class DirectExecSuite extends TestBase {
     (0 until 10).foreach(_ => {
       service.submit(new Runnable {
         override def run(): Unit = {
-          var startTime = System.currentTimeMillis()
-          val endTime = startTime + 30000
+          val endTime = System.currentTimeMillis() + 30000
           while (System.currentTimeMillis() < endTime) {
             Assert.assertEquals(exp,
               spark.sqlDirectly(sql).data.map(_.mkString(",")).mkString("\n"))
-            startTime = System.currentTimeMillis()
           }
           latch.countDown()
         }
@@ -288,12 +286,10 @@ class DirectExecSuite extends TestBase {
             .createDataFrame(Seq(("a", 1, 0), ("b", 2, 1), ("c", 3, 0)))
             .toDF("name", "age", "genda")
             .createOrReplaceTempView("people2")
-          var startTime = System.currentTimeMillis()
-          val endTime = startTime + 30000
+          val endTime = System.currentTimeMillis() + 30000
           while (System.currentTimeMillis() < endTime) {
             Assert.assertEquals(exp,
               session.sqlDirectly(sql).data.map(_.mkString(",")).mkString("\n"))
-            startTime = System.currentTimeMillis()
           }
           latch.countDown()
         }
@@ -337,6 +333,45 @@ class DirectExecSuite extends TestBase {
     Assert.assertNotEquals(first, second)
   }
 
+  @Test
+  def testTime2(): Unit = {
+    val service = Executors.newFixedThreadPool(10)
+    val latch = new CountDownLatch(10)
+    spark
+      .createDataFrame(List(("2019-08-01", 1, 0), ("2017-04-07", 2, 1), ("1992-02-06", 3, 0)))
+      .toDF("tm", "age", "genda")
+      .createOrReplaceTempView("tb")
+
+    val sql =
+      """
+        |select
+        |unix_timestamp(tm, 'yyyy-MM-dd') as ut,
+        |to_unix_timestamp(tm, 'yyyy-MM-dd') as tut,
+        |from_unixtime(age, 'yyyy-MM-dd HH:mm:ss') as fut
+        |from tb
+        |""".stripMargin
+    val exp = spark.sql(sql).collect().map(_.mkString(",")).mkString("\n")
+
+    (0 until 10).foreach(_ =>
+      service.submit(new Runnable {
+        override def run(): Unit = {
+          val session = spark.newSession()
+          session
+            .createDataFrame(List(("2019-08-01", 1, 0), ("2017-04-07", 2, 1), ("1992-02-06", 3, 0)))
+            .toDF("tm", "age", "genda")
+            .createOrReplaceTempView("tb")
+          val endTime = System.currentTimeMillis() + 20000
+          while (System.currentTimeMillis() < endTime) {
+            Assert.assertEquals(exp,
+              session.sqlDirectly(sql).data.map(_.mkString(",")).mkString("\n"))
+          }
+          latch.countDown()
+        }
+      }
+      )
+    )
+    latch.await()
+  }
 
 }
 class StrLen extends UDF {
