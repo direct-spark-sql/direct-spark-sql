@@ -20,7 +20,6 @@ package org.apache.spark.sql
 import java.util.Properties
 import java.util.concurrent.Callable
 
-import scala.collection.mutable.ListBuffer
 import scala.reflect.runtime.{universe => ru}
 import scala.util.control.NonFatal
 
@@ -28,12 +27,11 @@ import com.google.common.cache.CacheBuilder
 
 import org.apache.spark.{SparkConf, SparkContext, TaskContext, TaskContextImpl}
 import org.apache.spark.internal.Logging
-import org.apache.spark.internal.config.MEMORY_OFFHEAP_ENABLED
 import org.apache.spark.memory.{TaskMemoryManager, UnifiedMemoryManager}
 import org.apache.spark.scheduler.{SparkListener, SparkListenerApplicationEnd}
 import org.apache.spark.sql.SparkSession.{setActiveSession, setDefaultSession}
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
-import org.apache.spark.sql.catalyst.expressions.{Expression, Projection}
+import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateSafeProjection
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, Project, SubqueryAlias}
 import org.apache.spark.sql.execution.direct.{DirectExecutionContext, DirectPlan, DirectPlanConverter, DirectPlanStrategies}
@@ -124,6 +122,7 @@ class DirectSparkSession private (
       DirectExecutionContext.get().markCompleted()
       TaskContext.unset()
       DirectExecutionContext.unset()
+      SparkSession.clearActiveSession()
     }
   }
 
@@ -134,6 +133,7 @@ class DirectSparkSession private (
           table.schema.toAttributes,
           table.data.par.map(converter(_).asInstanceOf[InternalRow]).toList)
     sessionState.catalog.createTempView(name, plan, true)
+    SparkSession.clearActiveSession()
   }
 
   def tempView(name: String): DirectDataTable = {
@@ -214,6 +214,7 @@ class DirectSparkSession private (
       DirectExecutionContext.get().markCompleted()
       TaskContext.unset()
       DirectExecutionContext.unset()
+      SparkSession.clearActiveSession()
     }
   }
 
