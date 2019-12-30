@@ -198,6 +198,9 @@ object DirectPlanConverter {
       case cartesianProductExec: CartesianProductExec =>
         DirectPlanAdapter(cartesianProductExec)
 
+      case LocalTableScanExec(output, rows) if rows.isEmpty =>
+        LocalTableScanDirectExec(output, null)
+
       case other =>
         // DirectPlanAdapter(other)
         throw new UnsupportedOperationException("can't convert this SparkPlan " + other)

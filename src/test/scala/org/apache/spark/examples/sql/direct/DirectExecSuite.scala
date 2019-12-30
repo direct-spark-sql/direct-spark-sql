@@ -373,6 +373,14 @@ class DirectExecSuite extends TestBase {
     latch.await()
   }
 
+  @Test
+  def testEmpty(): Unit = {
+    assertEquals(
+      """
+        |select * from people where 1 = 0
+        |""".stripMargin)
+  }
+
 }
 class StrLen extends UDF {
 

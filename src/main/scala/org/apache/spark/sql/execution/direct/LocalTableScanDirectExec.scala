@@ -25,6 +25,9 @@ case class LocalTableScanDirectExec(output: Seq[Attribute], name: TableIdentifie
     extends LeafDirectExecNode {
 
   override def doExecute(): Iterator[InternalRow] = {
+    if (name == null) {
+      return Iterator.empty
+    }
     val rows: Seq[InternalRow] = {
       val foundRelation =
         DirectExecutionContext.get().activeSparkSession.sessionState.catalog.lookupRelation(name)
